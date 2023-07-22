@@ -23,6 +23,7 @@ namespace screws_math_ns {
         void formTwist( Eigen::Matrix<float, 6, 1> & T, const Eigen::Vector3f& v, const Eigen::Vector3f& w);
         void printTwist(Stream& serialPort, Eigen::Matrix<float, 6, 1> & T );
     };
+    
        
 }
 #endif //screws4robotics

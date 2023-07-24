@@ -100,4 +100,42 @@ void screws4robotics::printTransform(Stream& serialPort, const Eigen::Isometry3f
     }
 }
 
+void screws4robotics::ad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f& g ) {
+// g \in SE(3) homogeneous rigid body tf
+    Eigen::Matrix3f R = g.linear();
+    Eigen::Vector3f p = g.translation();
+
+    Eigen::Matrix3f pHat = skew(p);
+
+    A.block<3, 3>(0, 0) = R;
+    A.block<3, 3>(0, 3) = pHat * R;
+    A.block<3, 3>(3, 0) = Eigen::Matrix3f::Zero();
+    A.block<3, 3>(3, 3) = R;
+}
+
+void screws4robotics::iad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f& g ) {
+// g \in SE(3) homogeneous rigid body tf
+    Eigen::Matrix3f R = g.linear();
+    Eigen::Vector3f p = g.translation();
+
+    Eigen::Matrix3f pHat = skew(p);
+
+    A.block<3, 3>(0, 0) =  R.transpose();
+    A.block<3, 3>(0, 3) = -R.transpose() * pHat;
+    A.block<3, 3>(3, 0) =  Eigen::Matrix3f::Zero();
+    A.block<3, 3>(3, 3) =  R.transpose();
+}
+
+template <int Rows, int Cols>
+void screws4robotics::printMatrix(Eigen::Matrix<float, Rows, Cols>& matrix) {
+    for (int i = 0; i < Rows; i++) {
+        for (int j = 0; j < Cols; j++) {
+            Serial.print(matrix(i, j),4);
+            Serial.print("\t"); // Add a tab to separate the elements
+        }
+        Serial.println(); // Move to the next row
+    }
+}
+template void screws4robotics::printMatrix<6,6>(Eigen::Matrix<float, 6, 6>&);
+
 } // namespace screws_math_ns

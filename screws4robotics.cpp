@@ -1,6 +1,6 @@
 #include "screws4robotics.h"
 
-namespace screws_math_ns {
+namespace screws_utils_ns {
 
 screws4robotics::screws4robotics()
 {
@@ -31,32 +31,53 @@ void screws4robotics::printVector(Stream& serialPort, const Eigen::Vector3f& v) 
   serialPort.println("]");
 }
 
-void screws4robotics::formTwist( Eigen::Matrix<float, 6, 1> & T, const Eigen::Vector3f& v, const Eigen::Vector3f& w) {
-    T << v , w;
+void screws4robotics::formTwist(Eigen::Matrix<float, 6, 1> & xi_R6, Eigen::Vector3f v, Eigen::Vector3f w) {
+    xi_R6 << v , w;
 }
 
-void screws4robotics::printTwist(Stream& serialPort, Eigen::Matrix<float, 6, 1> & T ) {
-  serialPort.print("Twist: [");
-  serialPort.print(T[0]);
-  serialPort.print(" ");
-  serialPort.print(T[1]);
-  serialPort.print(" ");
-  serialPort.print(T[2]);
-  serialPort.print(" ");
-  serialPort.print(T[3]);
-  serialPort.print(" ");
-  serialPort.print(T[4]);
-  serialPort.print(" ");
-  serialPort.print(T[5]);      
-  serialPort.println("]");
+void screws4robotics::formTwist(Eigen::Matrix4f & xi_se3, Eigen::Vector3f v, Eigen::Matrix3f wHat) {
+    xi_se3.block<3, 3>(0, 0) =  wHat;
+    xi_se3.block<3, 1>(0, 3) =  v;
+    xi_se3.block<1, 4>(3, 0) =  Eigen::Vector4f::Zero();
+}
+
+void screws4robotics::printTwist(Stream& serialPort, Eigen::Matrix<float, 6, 1> T ) {
+    printMatrix(T);
+}
+
+void screws4robotics::printTwist(Stream& serialPort, Eigen::Matrix4f T ) {
+    printMatrix(T);
 }
 
 Eigen::Matrix3f screws4robotics::skew(const Eigen::Vector3f& w) {
+    // w \in R3 -> wHat \in so(3)
     Eigen::Matrix3f m;
-    m <<    0, -w(2),  w(1),
-         w(2),     0, -w(0),
-        -w(1),  w(0),     0;
+    m <<     0, -w.z(),  w.y(),
+         w.z(),      0, -w.x(),
+        -w.y(),  w.x(),      0;
     return m;    
+}
+
+Eigen::Vector3f screws4robotics::unskew(const Eigen::Matrix3f& wHat) {
+    // wHat \in so(3) -> w \in R3
+    Eigen::Vector3f w;
+    w.x() = -wHat(1,2);
+    w.y() =  wHat(0,2);
+    w.z() =  wHat(1,0);
+}
+
+void screws4robotics::vee(Eigen::Matrix<float, 6, 1>& xi , Eigen::Matrix4f xi_se3) {
+    // forms a 6x1 vector twist from a se(3) twist marix
+    Eigen::Matrix3f wHat = xi_se3.block<3, 3>(0, 0);
+    formTwist( xi, xi_se3.block<3, 1>(0, 3), unskew(wHat));
+}
+
+void screws4robotics::wedge(Eigen::Matrix4f& xi , Eigen::Matrix<float, 6, 1> xi_R6) {
+    // forms a se(3) twist marix from a 6x1 vector twist
+    Eigen::Vector3f v = xi_R6.segment(0, 3);
+    Eigen::Vector3f w = xi_R6.segment(3, 3);
+    Eigen::Matrix3f wHat = skew(w);
+    formTwist( xi,v,wHat);
 }
 
 Eigen::Matrix3f screws4robotics::skewExp(const Eigen::Vector3f& w, float theta) {
@@ -71,13 +92,35 @@ Eigen::Matrix3f screws4robotics::skewExp(const Eigen::Vector3f& w, float theta) 
     return exp_w_theta;
 }
 
-Eigen::Isometry3f screws4robotics::twistExp(Eigen::Matrix<float, 6, 1> & xi, float theta) {
-    Eigen::Vector3f v = xi.segment(0, 3);
-    Eigen::Vector3f w = xi.segment(3, 3);
+// Overloaded twistExp function for 4x4 twist R(6)
+Eigen::Isometry3f screws4robotics::twistExp(const Eigen::Matrix<float, 6, 1>& xi, float theta) {
+    Eigen::Isometry3f g = Eigen::Isometry3f::Identity();
+    Eigen::Vector3f v = xi.block<3, 1>(0, 0);
+    Eigen::Vector3f w = xi.block<3, 1>(3, 0);
+
+    if (w.isZero()) {
+        // Pure translation case
+        g.translation() = v * theta;
+    } else {
+        // Rotation and translation case
+        Eigen::Matrix3f e = skewExp(w, theta);
+        g.linear() = e;
+        g.translation() = (Eigen::Matrix3f::Identity() - e) * (skew(w) * v) + w * w.transpose() * v * theta;
+    }
+
+    return g;
+}
+
+// Overloaded twistExp function for 4x4 twist se(3)
+Eigen::Isometry3f screws4robotics::twistExp(const Eigen::Matrix4f& xi, float theta) {
+    Eigen::Matrix<float, 6, 1> xi_R6;
+    vee(xi_R6, xi);
+    Eigen::Vector3f v = xi_R6.block<3, 1>(0, 0);
+    Eigen::Vector3f w = xi_R6.block<3, 1>(3, 0);
 
     Eigen::Isometry3f g = Eigen::Isometry3f::Identity();
 
-    if ( w.isZero() ) {
+    if (w.isZero()) {
         // Pure translation case
         g.translation() = v * theta;
     } else {

@@ -41,6 +41,18 @@ void screws4robotics::formTwist(Eigen::Matrix4f & xi_se3, Eigen::Vector3f v, Eig
     xi_se3.block<1, 4>(3, 0) =  Eigen::Vector4f::Zero();
 }
 
+void screws4robotics::splitTwist(const Eigen::Matrix<float, 6, 1> xi_R6, Eigen::Vector3f & v, Eigen::Vector3f & w) {
+    v = xi_R6.block<3, 1>(0, 0);
+    w = xi_R6.block<3, 1>(3, 0);
+}
+
+void screws4robotics::splitTwist(const Eigen::Matrix4f xi_se3, Eigen::Vector3f & v, Eigen::Vector3f & w) {
+    Eigen::Matrix<float, 6, 1> xi_R6;
+    vee(xi_R6, xi_se3);
+    v = xi_R6.block<3, 1>(0, 0);
+    w = xi_R6.block<3, 1>(3, 0);    
+}
+
 void screws4robotics::printTwist(Stream& serialPort, Eigen::Matrix<float, 6, 1> T ) {
     printMatrix(T);
 }
@@ -144,7 +156,8 @@ void screws4robotics::printTransform(Stream& serialPort, const Eigen::Isometry3f
 }
 
 void screws4robotics::ad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f& g ) {
-// g \in SE(3) homogeneous rigid body tf
+    // Described in [1]/p.55
+    // g \in SE(3) homogeneous rigid body tf
     Eigen::Matrix3f R = g.linear();
     Eigen::Vector3f p = g.translation();
 
@@ -154,6 +167,36 @@ void screws4robotics::ad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f
     A.block<3, 3>(0, 3) = pHat * R;
     A.block<3, 3>(3, 0) = Eigen::Matrix3f::Zero();
     A.block<3, 3>(3, 3) = R;
+}
+
+void screws4robotics::ad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Matrix<float, 6, 1> xi_R6) {
+    // Described in [3]/p.243/eq.(116)
+    Eigen::Vector3f v;
+    Eigen::Vector3f w;
+    Eigen::Matrix3f v_hat;
+    Eigen::Matrix3f w_hat;
+
+    splitTwist(xi_R6, v, w);
+    v_hat = skew(v);
+    w_hat = skew(w);
+
+    A.block<3, 3>(0, 0) = v_hat;
+    A.block<3, 3>(0, 3) = Eigen::Matrix3f::Zero(); // Eigen::Matrix3f::Zero();
+    A.block<3, 3>(3, 0) = w_hat; // w_hat
+    A.block<3, 3>(3, 3) = v_hat;
+}
+
+Eigen::Matrix<float, 6, 6>  screws4robotics::sqp(Eigen::Matrix<float, 6, 1> xi_R6) {
+    // same with sqp, faster
+    Eigen::Matrix<float, 6, 6> SQP;
+
+    SQP.row(0) <<  0,       -xi_R6(5), xi_R6(4), 0,        -xi_R6(2),  xi_R6(1);
+    SQP.row(1) <<  xi_R6(5), 0,       -xi_R6(3), xi_R6(2),  0,        -xi_R6(0);
+    SQP.row(2) <<  xi_R6(4), xi_R6(3), 0,       -xi_R6(1),  xi_R6(0),  0;
+    SQP.row(3) <<  0,        0,        0,        0,        -xi_R6(5),  xi_R6(4);
+    SQP.row(4) <<  0,        0,        0,        xi_R6(5),  0,        -xi_R6(3);
+    SQP.row(5) <<  0,        0,        0,       -xi_R6(4),  xi_R6(3),  0;
+    return SQP;
 }
 
 void screws4robotics::iad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f& g ) {
@@ -169,6 +212,44 @@ void screws4robotics::iad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3
     A.block<3, 3>(3, 3) =  R.transpose();
 }
 
+Eigen::Matrix<float, 6, 1>  screws4robotics::lb(Eigen::Matrix<float, 6, 1> xi_i_R6, Eigen::Matrix<float, 6, 1> xi_j_R6) {
+    // Lie bracket operator, as in [1]/p.175
+    Eigen::Vector3f v_i;
+    Eigen::Vector3f w_i;
+    Eigen::Vector3f v_j;
+    Eigen::Vector3f w_j;
+    Eigen::Matrix3f w_i_hat;
+    Eigen::Matrix3f w_j_hat;
+    Eigen::Matrix4f xi_i_se3;
+    Eigen::Matrix4f xi_j_se3;
+    Eigen::Matrix4f cross_se3;
+    Eigen::Matrix<float, 6, 1> LB;
+
+    splitTwist(xi_i_R6, v_i, w_i);
+    splitTwist(xi_j_R6, v_j, w_j);
+
+    w_i_hat = skew(w_i);
+    w_j_hat = skew(w_j);
+
+    formTwist(xi_i_se3, v_i, w_i_hat);
+    formTwist(xi_j_se3, v_j, w_j_hat);
+
+    cross_se3 = xi_i_se3 * xi_j_se3 - xi_j_se3 * xi_i_se3;
+    LB.block<3, 1>(0,0) =  cross_se3.block<3, 1>(0, 3);
+    LB.block<3, 1>(3,0) <<  cross_se3(2,1), cross_se3(0,2), cross_se3(1,0);
+    return LB;
+}
+
+Eigen::Matrix<float, 6, 1>  screws4robotics::lb2(Eigen::Matrix<float, 6, 1> xi_i_R6, Eigen::Matrix<float, 6, 1> xi_j_R6) {
+    // Lie bracket operator, as in [3]/p.243/eq.(114)
+    Eigen::Matrix<float, 6, 1> LB;
+    Eigen::Matrix<float, 6, 6> ad_twist; // sqp
+    //ad(ad_twist, xi_i_R6);
+    ad_twist = sqp(xi_i_R6);
+    LB = ad_twist * xi_j_R6;
+    return LB;
+}
+
 template <int Rows, int Cols>
 void screws4robotics::printMatrix(Eigen::Matrix<float, Rows, Cols>& matrix) {
     for (int i = 0; i < Rows; i++) {
@@ -180,5 +261,5 @@ void screws4robotics::printMatrix(Eigen::Matrix<float, Rows, Cols>& matrix) {
     }
 }
 template void screws4robotics::printMatrix<6,6>(Eigen::Matrix<float, 6, 6>&);
-
+template void screws4robotics::printMatrix<6,3>(Eigen::Matrix<float, 6, 3>&);
 } // namespace screws_math_ns

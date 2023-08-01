@@ -37,6 +37,7 @@ namespace screws_utils_ns {
         void formTwist(Eigen::Matrix4f & xi_se3, Eigen::Vector3f v, Eigen::Matrix3f wHat);
         void splitTwist(const Eigen::Matrix<float, 6, 1> xi_R6, Eigen::Vector3f & v, Eigen::Vector3f & w);
         void splitTwist(const Eigen::Matrix4f xi_se3, Eigen::Vector3f & v, Eigen::Vector3f & w);
+        void splitTwist(const Eigen::Matrix4f xi_se3, Eigen::Vector3f & v, Eigen::Matrix3f & wHat);   
         Eigen::Matrix3f skew(const Eigen::Vector3f& w);
         Eigen::Vector3f unskew(const Eigen::Matrix3f& wHat);
         void vee(Eigen::Matrix<float, 6, 1>& xi , Eigen::Matrix4f xi_se3);
@@ -45,11 +46,13 @@ namespace screws_utils_ns {
         Eigen::Isometry3f twistExp(const Eigen::Matrix<float, 6, 1>& xi, float theta);
         Eigen::Isometry3f twistExp(const Eigen::Matrix4f& xi, float theta); 
         void ad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f& g );
-        void ad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Matrix<float, 6, 1> xi_R6);
-        Eigen::Matrix<float, 6, 6> sqp(Eigen::Matrix<float, 6, 1> xi_i_R6);
+        void Ad(Eigen::Matrix<float, 6, 6> & Ad, const Eigen::Isometry3f& Ci );
+        //Eigen::Matrix<float, 6, 6> adBold(Eigen::Matrix<float, 6, 1> xi_i_R6);
         void iad(Eigen::Matrix<float, 6, 6> & A, const Eigen::Isometry3f& g );
+        Eigen::Matrix4f  lb(Eigen::Matrix4f xi_i_se3, Eigen::Matrix4f xi_j_se3);
         Eigen::Matrix<float, 6, 1> lb(Eigen::Matrix<float, 6, 1> xi_i_R6, Eigen::Matrix<float, 6, 1> xi_j_R6);
-        Eigen::Matrix<float, 6, 1> lb2(Eigen::Matrix<float, 6, 1> xi_i_R6, Eigen::Matrix<float, 6, 1> xi_j_R6);
+        void spatialCrossProduct(Eigen::Matrix<float, 6, 6> & A, const Eigen::Matrix<float, 6, 1> xi_R6);
+        Eigen::Matrix<float, 6, 1> screwProduct(Eigen::Matrix<float, 6, 1> xi_i_R6, Eigen::Matrix<float, 6, 1> xi_j_R6);
 
         // prints
         void printVector(Stream& serialPort, const Eigen::Vector3f& v);
